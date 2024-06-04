@@ -41,7 +41,7 @@ soil_sensor = {
 # OLED
 i2c=I2C(0,sda=Pin(0), scl=Pin(1), freq=400000)
 oled = SSD1306_I2C(128, 64, i2c)
-info_message = 'Test'
+info_message = None
 
 def logger(message):
     global info_message
@@ -74,12 +74,13 @@ def run_pump():
         
         pump_flag += 1
         logger(f'Humidity level low - trying to start pump: attemp #{pump_flag}')
+        time.sleep(3)
         
         if pump_flag > 2:
             logger(f'Too many tries - disabling pump')
-            switch_status_diodes(False)
+            switch_pump(False)
             pump_flag = 0
-            time.sleep(1)
+            time.sleep(3)
             return
         
         logger(f'Starting pump for {pump_time}s')
@@ -101,10 +102,7 @@ def run_pump():
         for _ in range(3):
             read_soil_sensor()
             logger(f'Reading sensor after watering - current level: {inside_humidity}%')
-            time.sleep(1)
-        
-
-    
+            time.sleep(3)
     
 def run_led_strip():
     numpix = 8
@@ -163,7 +161,7 @@ def read_soil_sensor():
 def button1_handler(pin):
     global pump_active
     pump_active = not pump_active
-    switch_status_diodes(pump_active)
+    switch_pump(pump_active)
     print("Button 1 pressed")
 
 def button2_handler(pin):
@@ -186,7 +184,16 @@ def run_display(_):
     oled.fill(0)
     
     if info_message is not None:
-        oled.text(info_message, 0, 32)
+        height = 0
+        row = ''
+        for word in info_message.split(' '):
+            if len(row) + len(word) < 16:
+                row += word + ' '
+                oled.text(row, 0, height)
+            else:
+                height += 10
+                row = word + ' '
+                oled.text(row, 0, height)
     else:
         oled.text('OUTSIDE', 0, 3)
         oled.blit(thermometer_fb,0,12)
@@ -210,9 +217,8 @@ def run_display(_):
     
     oled.show()
     
-    time.sleep(0.3)
     
-def switch_status_diodes(value):
+def switch_pump(value):
     global status_diode_1
     global status_diode_2
     global pump_active
@@ -220,24 +226,18 @@ def switch_status_diodes(value):
     status_diode_1.value(value)
     status_diode_2.value(not value)
     
-def run_status_diode_2():
-    global status_diode_2
-    global pump_active
-    return
-
-    
 def main():
     global running
+    global pump_active
     try:
-        global pump_active
-        switch_status_diodes(pump_active)
+        switch_pump(pump_active)
         timer = Timer(-1)
         timer.init(period=500, mode=Timer.PERIODIC, callback=run_display)
         while running:
             read_dht()
             read_soil_sensor()
             run_pump()
-            time.sleep(5)
+            time.sleep(2)
     except KeyboardInterrupt:
         print('Finished loop')
         timer.deinit()
