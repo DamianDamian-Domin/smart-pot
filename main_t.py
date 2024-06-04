@@ -5,6 +5,8 @@ from dht import DHT11
 from ssd1306 import SSD1306_I2C
 import framebuf
 import _thread
+import network
+import socket
 
 # LOOP CONTROLER
 running = True
@@ -42,6 +44,9 @@ soil_sensor = {
 i2c=I2C(0,sda=Pin(0), scl=Pin(1), freq=400000)
 oled = SSD1306_I2C(128, 64, i2c)
 info_message = None
+
+# ACCES POINT
+ap_mode = False
 
 def logger(message):
     global info_message
@@ -165,6 +170,9 @@ def button1_handler(pin):
     print("Button 1 pressed")
 
 def button2_handler(pin):
+    global ap_mode
+    ap_mode = not ap_mode
+    print(ap_mode)
     print("Button 2 pressed")
     
 button1.irq(trigger=Pin.IRQ_FALLING, handler=button1_handler)
@@ -226,14 +234,56 @@ def switch_pump(value):
     status_diode_1.value(value)
     status_diode_2.value(not value)
     
+def web_page():
+  html = """<html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+            <body><h1>Hello world</h1></body></html>
+         """
+  return html
+
+# if you do not see the network you may have to power cycle
+# unplug your pico w for 10 seconds and plug it in again
+def run_ap():
+    global ap_mode
+    
+    ap = network.WLAN(network.AP_IF)
+    ap.config(essid='SmartPot', password='qqqwwweee')
+    ap.active(True)
+    while ap.active() == False:
+        logger('Starting AP...')
+    
+    logger('AP Mode Is Active IP:' + ap.ifconfig()[0])
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)   #creating socket object
+    s.bind(('', 80))
+    s.listen(5)
+
+    while ap_mode == True:
+        conn, addr = s.accept()
+        print('Got a connection from %s' % str(addr))
+        request = conn.recv(1024)
+        print('Content = %s' % str(request))
+        response = web_page()
+        conn.send(response)
+        conn.close()
+    
+    ap.active(False)
+    while ap.active() == True:   
+        logger('Disabling Acess Point...')
+    time.sleep(1)
+    logger(None)
+    
 def main():
     global running
     global pump_active
     try:
-        switch_pump(pump_active)
+        
+        switch_pump(pump_active)    
         timer = Timer(-1)
         timer.init(period=500, mode=Timer.PERIODIC, callback=run_display)
+        
         while running:
+            if ap_mode == True:
+                run_ap()
             read_dht()
             read_soil_sensor()
             run_pump()
