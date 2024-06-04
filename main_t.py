@@ -1,10 +1,13 @@
-from machine import Pin, PWM, ADC, I2C
+from machine import Pin, PWM, ADC, I2C, Timer
 import time
 from lib.neopixel import Neopixel
 from dht import DHT11
 from ssd1306 import SSD1306_I2C
 import framebuf
+import _thread
 
+# LOOP CONTROLER
+running = True
 
 # VARIABLE DEFINITIONS
 outside_humidity = None
@@ -25,6 +28,7 @@ status_diode_2 = Pin(13, Pin.OUT)
 pump_active = False
 pump_flag = 0
 pump_time = 5
+pwm = PWM(Pin(26))
 
 # SENSORS
 dht11 = DHT11(Pin(5))
@@ -37,29 +41,48 @@ soil_sensor = {
 # OLED
 i2c=I2C(0,sda=Pin(0), scl=Pin(1), freq=400000)
 oled = SSD1306_I2C(128, 64, i2c)
+info_message = 'Test'
 
+def logger(message):
+    global info_message
+    if (message is not None):
+        print(message)
+    info_message = message
+    
 
 def run_pump():
+    global running
+    global pwm
     global pump_active
     global pump_flag
     global pump_time
     global inside_humidity
     global humidity_treshold
-    pwm = PWM(Pin(26))
+    global info_message
     
-    while True:
+    
+    while running:
         if not pump_active:
+            print('Pump disabled - skiping starting pump')
+            logger(None)
             return
         if inside_humidity > humidity_treshold:
+            print('Humidity level OK - skiping starting pump')
+            logger(None)
             pump_flag = 0
             return
         
         pump_flag += 1
+        logger(f'Humidity level low - trying to start pump: attemp #{pump_flag}')
         
-        if pump_flag > 3:
+        if pump_flag > 2:
+            logger(f'Too many tries - disabling pump')
             switch_status_diodes(False)
+            pump_flag = 0
+            time.sleep(1)
             return
         
+        logger(f'Starting pump for {pump_time}s')
         # start pump
         pwm.freq(200)
         pwm.duty_u16(45000)
@@ -69,14 +92,15 @@ def run_pump():
         
         # stop pump
         pwm.duty_u16(0)
-        pwm.freq(0)
         
+        logger(f'Waiting for imersia 5s')
         # wait for imersia
         time.sleep(5)
         
         # do three measures
-        for _ in 3:
+        for _ in range(3):
             read_soil_sensor()
+            logger(f'Reading sensor after watering - current level: {inside_humidity}%')
             time.sleep(1)
         
 
@@ -148,8 +172,10 @@ def button2_handler(pin):
 button1.irq(trigger=Pin.IRQ_FALLING, handler=button1_handler)
 button2.irq(trigger=Pin.IRQ_FALLING, handler=button2_handler)
         
-def run_display():
-    
+def run_display(_):
+    global running
+    global inside_humidity
+    global info_message
     thermometer_ba = bytearray(b'\x00\x00\x00\x00\x00\x00\x00<\x00\x00f\x00\x00B\xe0\x00B\x00\x00B\x00\x00B\xe0\x00B\x00\x00B\x00\x00B\xe0\x00B\x00\x00B\x00\x00B\xe0\x00B\x00\x00\xc3\x00\x00\x81\x00\x00\x81\x00\x00\x81\x00\x00\x81\x00\x00\xc3\x00\x00~\x00\x00\x00\x00\x00\x00\x00'
     )
     thermometer_fb = framebuf.FrameBuffer(thermometer_ba,24,24, framebuf.MONO_HLSB)
@@ -157,37 +183,40 @@ def run_display():
     tear_ba = bytearray(b'\x00\x10\x00\x00\x18\x00\x00\x18\x00\x00<\x00\x00,\x00\x00$\x00\x00f\x00\x00\xc3\x00\x00\x81\x00\x01\x81\x80\x03\x00\xc0\x06\x00`\x04\x00`\x04\x00 \x0c\x000\x04\x00 \x0c\x000\x08\x00 \x04\x00 \x06\x00`\x06\x00@\x03\x01\xc0\x01\xef\x00\x00|\x00')
     tear_fb = framebuf.FrameBuffer(tear_ba, 24,24, framebuf.MONO_HLSB)
 
-    sensors_position = [66, 80, 94, 108]
-    sensors_labels = ['A', 'B', 'C', 'D']
-    
     oled.fill(0)
     
-    oled.text('OUTSIDE', 0, 3)
-    oled.blit(thermometer_fb,0,12)
-    oled.blit(tear_fb, 0, 40)
-    
-    oled.vline(58, 0, 64, 1)
-    
-    oled.text('SENSOR', 65, 3)
-    
-    oled.rect(64, 13, 60, 20, 1)
+    if info_message is not None:
+        oled.text(info_message, 0, 32)
+    else:
+        oled.text('OUTSIDE', 0, 3)
+        oled.blit(thermometer_fb,0,12)
+        oled.blit(tear_fb, 0, 40)
+        
+        oled.vline(58, 0, 64, 1)
+        
+        oled.text('SENSOR', 65, 3)
+        
+        oled.rect(64, 13, 60, 20, 1)
 
-    oled.text('DATA', 65, 36)
-    oled.text('31.05.24', 65, 46)
-    oled.text('Piwonia', 65, 56)
-    oled.text(f'{outside_humidity}C', 28, 18)
-    oled.text(f'{outside_temperature}%', 28, 46)
-    
-    # FILL DATA
-    _fill_value = int(0 + (inside_humidity / 100) * (60-0))
-    print(_fill_value)
-    oled.fill_rect(64, 13, _fill_value, 20, 1)
+        oled.text('DATA', 65, 36)
+        oled.text('31.05.24', 65, 46)
+        oled.text('Piwonia', 65, 56)
+        oled.text(f'{outside_humidity}C', 28, 18)
+        oled.text(f'{outside_temperature}%', 28, 46)
+        
+        # FILL DATA
+        _fill_value = int(0 + (inside_humidity / 100) * (60 - 0)) if inside_humidity is not None else 0
+        oled.fill_rect(64, 13, _fill_value, 20, 1)
     
     oled.show()
+    
+    time.sleep(0.3)
     
 def switch_status_diodes(value):
     global status_diode_1
     global status_diode_2
+    global pump_active
+    pump_active = value
     status_diode_1.value(value)
     status_diode_2.value(not value)
     
@@ -198,16 +227,26 @@ def run_status_diode_2():
 
     
 def main():
-    global pump_active
-    switch_status_diodes(pump_active)
-    while True:
-        read_dht()
-        read_soil_sensor()
-        run_display()
-        time.sleep(1)
+    global running
+    try:
+        global pump_active
+        switch_status_diodes(pump_active)
+        timer = Timer(-1)
+        timer.init(period=500, mode=Timer.PERIODIC, callback=run_display)
+        while running:
+            read_dht()
+            read_soil_sensor()
+            run_pump()
+            time.sleep(5)
+    except KeyboardInterrupt:
+        print('Finished loop')
+        timer.deinit()
+        running = False
         
 main()
     
+
+
 
 
 
