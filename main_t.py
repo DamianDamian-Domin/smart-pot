@@ -1,4 +1,5 @@
 from machine import Pin, PWM, ADC, I2C, Timer
+import machine
 import time
 from lib.neopixel import Neopixel
 from dht import DHT11
@@ -243,27 +244,53 @@ def web_page():
 
 
 def connect_to_wifi(ssid, password):
+    global onboard_led
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
+        
     wlan.connect(ssid, password)
-    
-    timeout = 10
+    timeout = 20
     while not wlan.isconnected() and timeout > 0:
-        print('Connecting to WiFi...')
+        print(wlan.status())
+        onboard_led.toggle()
+        logger(f'Connecting to {ssid} WiFi...')
         time.sleep(1)
         timeout -= 1
     if wlan.isconnected():
-        print('Connected with IP:', wlan.ifconfig())
+        onboard_led.on()
+        print(wlan.ifconfig())
+        logger(f'Connected to {ssid} WiFi with IP: {wlan.ifconfig()[0]}')
+        time.sleep(5)
+        logger(None)
     else:
-        print('Failed to connect to WiFi')
+        onboard_led.off()
+        message = None
+        if wlan.status() == -3:
+            message = 'Wrong password'
+        elif wlan.status() == -2:
+            message = 'No access point found'
+        elif wlan.status() == -1:
+            message = 'Failed to connect'
+        else:
+            message = 'Error: Unknown'
+        logger(f'Failed to connect to WiFi: {message}')
+        time.sleep(3)
+        logger(None)
 
 
 def save_wifi_config(ssid, password):
-    with open('wifi_config.txt', 'w') as f:
+    with open('wifi_config.txt', 'w', encoding='utf-8') as f:
         f.write(f'{ssid}\n{password}')
 
-# if you do not see the network you may have to power cycle
-# unplug your pico w for 10 seconds and plug it in again
+def load_wifi_config():
+    try:
+        with open('wifi_config.txt', 'r') as f:
+            ssid = f.readline().strip()
+            password = f.readline().strip()
+            return ssid, password
+    except OSError:
+        return None, None
+
 def run_ap():
     global ap_mode
     
@@ -288,44 +315,44 @@ def serve():
 
         if 'GET / ' in request:
             response = """\
-                HTTP/1.1 200 OK
-                Content-Type: text/html
+HTTP/1.1 200 OK
+Content-Type: text/html
 
-                <!DOCTYPE html>
-                <html>
-                <body>
-                <h1>Configure WiFi</h1>
-                <form action="/configure" method="post">
-                SSID:<br>
-                <input type="text" name="ssid"><br>
-                Password:<br>
-                <input type="text" name="password"><br>
-                <input type="submit" value="Submit">
-                </form>
-                </body>
-                </html>
-                """
+<!DOCTYPE html>
+<html>
+<body>
+<h1>Configure WiFi</h1>
+<form action="/configure" method="post">
+SSID:<br>
+<input type="text" name="ssid"><br>
+Password:<br>
+<input type="text" name="password"><br>
+<input type="submit" value="Submit">
+</form>
+</body>
+</html>
+"""
             cl.send(response)
 
         if 'POST /configure ' in request:
                 match = ure.search(r'ssid=([^&]*)&password=(.*)', request)
                 if match:
-                    ssid = match.group(1).replace('%20', ' ')
+                    ssid = match.group(1).replace('%20', ' ').replace('+', ' ')
                     password = match.group(2).replace('%20', ' ')
                     save_wifi_config(ssid, password)
                     response = """\
-                    HTTP/1.1 200 OK
-                    Content-Type: text/html
+HTTP/1.1 200 OK
+Content-Type: text/html
 
-                    <!DOCTYPE html>
-                    <html>
-                    <body>
-                    <h1>Configuration Saved</h1>
-                    <p>SSID: {}</p>
-                    <p>Password: {}</p>
-                    </body>
-                    </html>
-                    """.format(ssid, password)
+<!DOCTYPE html>
+<html>
+<body>
+<h1>Configuration Saved - Restart your device</h1>
+<p>SSID: {}</p>
+<p>Password: {}</p>
+</body>
+</html>
+""".format(ssid, password)
                     cl.send(response)
                     cl.close()
                     break
@@ -342,6 +369,10 @@ def main():
         timer = Timer(-1)
         timer.init(period=500, mode=Timer.PERIODIC, callback=run_display)
         
+        ssid, password = load_wifi_config()
+        if ssid and password:
+            connect_to_wifi(ssid, password)
+        
         while running:
             if ap_mode == True:
                 run_ap()
@@ -349,7 +380,7 @@ def main():
             read_dht()
             read_soil_sensor()
             run_pump()
-            time.sleep(2)
+            time.sleep(1)
     except KeyboardInterrupt:
         print('Finished loop')
         timer.deinit()
@@ -357,6 +388,7 @@ def main():
         
 main()
     
+
 
 
 
