@@ -7,6 +7,7 @@ import framebuf
 import _thread
 import network
 import socket
+import ure
 
 # LOOP CONTROLER
 running = True
@@ -240,6 +241,27 @@ def web_page():
          """
   return html
 
+
+def connect_to_wifi(ssid, password):
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+    wlan.connect(ssid, password)
+    
+    timeout = 10
+    while not wlan.isconnected() and timeout > 0:
+        print('Connecting to WiFi...')
+        time.sleep(1)
+        timeout -= 1
+    if wlan.isconnected():
+        print('Connected with IP:', wlan.ifconfig())
+    else:
+        print('Failed to connect to WiFi')
+
+
+def save_wifi_config(ssid, password):
+    with open('wifi_config.txt', 'w') as f:
+        f.write(f'{ssid}\n{password}')
+
 # if you do not see the network you may have to power cycle
 # unplug your pico w for 10 seconds and plug it in again
 def run_ap():
@@ -253,24 +275,63 @@ def run_ap():
     
     logger('AP Mode Is Active IP:' + ap.ifconfig()[0])
 
+def serve():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)   #creating socket object
     s.bind(('', 80))
     s.listen(5)
-
-    while ap_mode == True:
-        conn, addr = s.accept()
-        print('Got a connection from %s' % str(addr))
-        request = conn.recv(1024)
-        print('Content = %s' % str(request))
-        response = web_page()
-        conn.send(response)
-        conn.close()
     
-    ap.active(False)
-    while ap.active() == True:   
-        logger('Disabling Acess Point...')
-    time.sleep(1)
-    logger(None)
+    while True:
+        cl, addr = s.accept()
+        print('Client connected from', addr)
+        request = cl.recv(1024).decode()
+        print('Request:', request)
+
+        if 'GET / ' in request:
+            response = """\
+                HTTP/1.1 200 OK
+                Content-Type: text/html
+
+                <!DOCTYPE html>
+                <html>
+                <body>
+                <h1>Configure WiFi</h1>
+                <form action="/configure" method="post">
+                SSID:<br>
+                <input type="text" name="ssid"><br>
+                Password:<br>
+                <input type="text" name="password"><br>
+                <input type="submit" value="Submit">
+                </form>
+                </body>
+                </html>
+                """
+            cl.send(response)
+
+        if 'POST /configure ' in request:
+                match = ure.search(r'ssid=([^&]*)&password=(.*)', request)
+                if match:
+                    ssid = match.group(1).replace('%20', ' ')
+                    password = match.group(2).replace('%20', ' ')
+                    save_wifi_config(ssid, password)
+                    response = """\
+                    HTTP/1.1 200 OK
+                    Content-Type: text/html
+
+                    <!DOCTYPE html>
+                    <html>
+                    <body>
+                    <h1>Configuration Saved</h1>
+                    <p>SSID: {}</p>
+                    <p>Password: {}</p>
+                    </body>
+                    </html>
+                    """.format(ssid, password)
+                    cl.send(response)
+                    cl.close()
+                    break
+        cl.close()
+
+
     
 def main():
     global running
@@ -284,6 +345,7 @@ def main():
         while running:
             if ap_mode == True:
                 run_ap()
+                serve()
             read_dht()
             read_soil_sensor()
             run_pump()
@@ -295,6 +357,7 @@ def main():
         
 main()
     
+
 
 
 
