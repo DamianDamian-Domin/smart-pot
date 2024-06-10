@@ -264,10 +264,11 @@ def connect_to_wifi(ssid, password):
         timeout -= 1
     if wlan.isconnected():
         onboard_led.on()
-        print(wlan.ifconfig())
-        logger(f'Connected to {ssid} WiFi with IP: {wlan.ifconfig()[0]}')
-        time.sleep(5)
+        ip = wlan.ifconfig()[0]
+        logger(f'Connected to {ssid} WiFi with IP: {ip}')
+        time.sleep(3)
         logger(None)
+        return ip
     else:
         onboard_led.off()
         message = None
@@ -282,6 +283,7 @@ def connect_to_wifi(ssid, password):
         logger(f'Failed to connect to WiFi: {message}')
         time.sleep(3)
         logger(None)
+        return None
 
 
 def save_wifi_config(ssid, password):
@@ -313,13 +315,7 @@ def serve_ap_website():
         print('Request:', request)
 
         if 'GET / ' in request:
-            response = """\
-HTTP/1.1 200 OK
-Content-Type: text/html
-
-
-"""
-            response += ap_index
+            response = ap_index
             cl.send(response)
 
         if 'POST /configure ' in request:
@@ -328,13 +324,7 @@ Content-Type: text/html
                     ssid = match.group(1).replace('%20', ' ').replace('+', ' ')
                     password = match.group(2).replace('%20', ' ')
                     save_wifi_config(ssid, password)
-                    response = """\
-HTTP/1.1 200 OK
-Content-Type: text/html
-                
-
-"""
-                    response += ap_configure.format(ssid, password)
+                    response = ap_configure.format(ssid, password)
                     cl.send(response)
         cl.close()
 
@@ -350,37 +340,70 @@ def run_ap():
     logger('AP Mode Is Active IP:' + ap.ifconfig()[0])
     
     serve_ap_website()
-    
-def run_wifi_website():
-    pass
-    
+
+def webpage():
+    #Template HTML
+    html = f"""
+            <!DOCTYPE html>
+            <html>
+            <h1> Welcome to wifi webiste</h1>
+            </html>
+            """
+    return str(html)
+
+def open_wifi_socket(ip):
+    # Open a socket
+    address = (ip, 80)
+    connection = socket.socket()
+    connection.bind(address)
+    connection.listen(1)
+    return connection
+
+def serve_wifi_website(connection):
+    while True:
+        client = connection.accept()[0]
+        request = client.recv(1024)
+        request = str(request)
+        print(request)
+        html = webpage()
+        client.send(html)
+        client.close()
+        
+def hardware_loop(_):
+    if ap_mode == True:
+        run_ap()
+    read_dht()
+    read_soil_sensor()
+    run_pump()
 def main():
     global running
     global pump_active
     try:
         
-        switch_pump(pump_active)    
-        timer = Timer(-1)
-        timer.init(period=500, mode=Timer.PERIODIC, callback=run_display)
+        switch_pump(pump_active)
         
+        display_timer = Timer(-1)
+        display_timer.init(period=500, mode=Timer.PERIODIC, callback=run_display)
+        
+        hardware_timer = Timer(-1)
+        hardware_timer.init(period=1000, mode=Timer.PERIODIC, callback=hardware_loop) 
+    
         ssid, password = load_wifi_config()
         if ssid and password:
-            connect_to_wifi(ssid, password)
-        
-        while running:
-            if ap_mode == True:
-                run_ap()
-            read_dht()
-            read_soil_sensor()
-            run_pump()
-            time.sleep(1)
+            ip = connect_to_wifi(ssid, password)
+            if ip:
+                connection = open_wifi_socket(ip)
+                serve_wifi_website(connection)
+
     except KeyboardInterrupt:
         print('Finished loop')
-        timer.deinit()
+        display_timer.deinit()
+        hardware_timer.deinit()
         running = False
         
 main()
     
+
 
 
 
