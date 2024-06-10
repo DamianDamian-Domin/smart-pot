@@ -150,13 +150,16 @@ def run_led_strip():
     strip.show()
     
 def read_dht():
-    global outside_humidity
-    global outside_temperature
-    dht11.measure()
-    outside_humidity = dht11.temperature()
-    outside_temperature = dht11.humidity()
-    print(f'Room Temperature: {outside_humidity}C')
-    print(f'Room Humidity: {outside_temperature}%')
+    try:
+        global outside_humidity
+        global outside_temperature
+        dht11.measure()
+        outside_humidity = dht11.temperature()
+        outside_temperature = dht11.humidity()
+        print(f'Room Temperature: {outside_humidity}C')
+        print(f'Room Humidity: {outside_temperature}%')
+    except:
+        print('Failed to read dht')
         
 def read_soil_sensor():
     global inside_humidity
@@ -167,12 +170,16 @@ def read_soil_sensor():
 
 def button1_handler(pin):
     global pump_active
+    if ap_mode:
+        return
     pump_active = not pump_active
     switch_pump(pump_active)
     print("Button 1 pressed")
 
 def button2_handler(pin):
     global ap_mode
+    if ap_mode:
+        return
     ap_mode = not ap_mode
     print(ap_mode)
     print("Button 2 pressed")
@@ -236,11 +243,10 @@ def switch_pump(value):
     status_diode_1.value(value)
     status_diode_2.value(not value)
     
-def web_page():
-  html = """<html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head>
-            <body><h1>Hello world</h1></body></html>
-         """
-  return html
+
+def load_html(filename):
+    with open(filename, 'r') as file:
+        return file.read()
 
 
 def connect_to_wifi(ssid, password):
@@ -249,7 +255,7 @@ def connect_to_wifi(ssid, password):
     wlan.active(True)
         
     wlan.connect(ssid, password)
-    timeout = 20
+    timeout = 5
     while not wlan.isconnected() and timeout > 0:
         print(wlan.status())
         onboard_led.toggle()
@@ -291,21 +297,14 @@ def load_wifi_config():
     except OSError:
         return None, None
 
-def run_ap():
-    global ap_mode
-    
-    ap = network.WLAN(network.AP_IF)
-    ap.config(essid='SmartPot', password='qqqwwweee')
-    ap.active(True)
-    while ap.active() == False:
-        logger('Starting AP...')
-    
-    logger('AP Mode Is Active IP:' + ap.ifconfig()[0])
-
-def serve():
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)   #creating socket object
+def serve_ap_website():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)#creating socket object
     s.bind(('', 80))
     s.listen(5)
+    
+    ap_index = load_html('ap_index.html')
+    ap_configure = load_html('ap_configure.html')
     
     while True:
         cl, addr = s.accept()
@@ -318,20 +317,9 @@ def serve():
 HTTP/1.1 200 OK
 Content-Type: text/html
 
-<!DOCTYPE html>
-<html>
-<body>
-<h1>Configure WiFi</h1>
-<form action="/configure" method="post">
-SSID:<br>
-<input type="text" name="ssid"><br>
-Password:<br>
-<input type="text" name="password"><br>
-<input type="submit" value="Submit">
-</form>
-</body>
-</html>
+
 """
+            response += ap_index
             cl.send(response)
 
         if 'POST /configure ' in request:
@@ -343,22 +331,28 @@ Password:<br>
                     response = """\
 HTTP/1.1 200 OK
 Content-Type: text/html
+                
 
-<!DOCTYPE html>
-<html>
-<body>
-<h1>Configuration Saved - Restart your device</h1>
-<p>SSID: {}</p>
-<p>Password: {}</p>
-</body>
-</html>
-""".format(ssid, password)
+"""
+                    response += ap_configure.format(ssid, password)
                     cl.send(response)
-                    cl.close()
-                    break
         cl.close()
 
-
+def run_ap():
+    global ap_mode
+    
+    ap = network.WLAN(network.AP_IF)
+    ap.config(essid='SmartPot', password='qqqwwweee')
+    ap.active(True)
+    while ap.active() == False:
+        logger('Starting AP...')
+    
+    logger('AP Mode Is Active IP:' + ap.ifconfig()[0])
+    
+    serve_ap_website()
+    
+def run_wifi_website():
+    pass
     
 def main():
     global running
@@ -376,7 +370,6 @@ def main():
         while running:
             if ap_mode == True:
                 run_ap()
-                serve()
             read_dht()
             read_soil_sensor()
             run_pump()
@@ -388,6 +381,7 @@ def main():
         
 main()
     
+
 
 
 
