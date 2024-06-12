@@ -9,6 +9,7 @@ import _thread
 import network
 import socket
 import ure
+import json
 
 # LOOP CONTROLER
 running = True
@@ -17,7 +18,6 @@ running = True
 outside_humidity = None
 outside_temperature = None
 inside_humidity = None
-humidity_treshold = 50
 
 # BUTTONS
 debounce_time = 200
@@ -34,6 +34,7 @@ pump_active = False
 pump_running = False
 pump_flag = 0
 pump_time = 5
+pump_treshold = 50
 pwm = PWM(Pin(26))
 
 # SENSORS
@@ -74,7 +75,7 @@ def run_pump():
     global pump_flag
     global pump_time
     global inside_humidity
-    global humidity_treshold
+    global pump_treshold
     global info_message
     
     pump_running = True
@@ -83,7 +84,7 @@ def run_pump():
             print('Pump disabled - skiping starting pump')
             logger(None)
             break
-        if inside_humidity > humidity_treshold:
+        if inside_humidity > pump_treshold:
             print('Humidity level OK - skiping starting pump')
             logger(None)
             pump_flag = 0
@@ -332,6 +333,7 @@ def connect_to_wifi(ssid, password):
 def save_wifi_config(ssid, password):
     with open('wifi_config.txt', 'w', encoding='utf-8') as f:
         f.write(f'{ssid}\n{password}')
+        
 
 def load_wifi_config():
     try:
@@ -341,6 +343,33 @@ def load_wifi_config():
             return ssid, password
     except OSError:
         return None, None
+    
+def save_pump_config(treshold, time):
+    with open('pump_config.txt', 'w', encoding='utf-8') as f:
+        f.write(f'{treshold}\n{time}')
+    
+def load_pump_config():
+    try:
+        with open('pump_config.txt', 'r') as f:
+            treshold = f.readline().strip()
+            time = f.readline().strip()
+            return int(treshold), int(time)
+    except OSError:
+        return None, None
+    
+def set_pump_config(treshold, time):
+    global pump_treshold
+    global pump_time
+    
+    pump_treshold = treshold
+    pump_time = time
+
+def parse_query_params(query):
+    params = {}
+    for param in query.split('&'):
+        key, value = param.split('=')
+        params[key] = value
+    return params
 
 def serve_ap_website():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -394,30 +423,55 @@ def open_wifi_socket(ip):
     connection.listen(1)
     return connection
 
-def run_led():
-    print('Led ON')
-    
-def off_led():
-    print('Led OFF')
 
 def serve_wifi_website(connection):
+    global pump_time
+    global pump_treshold
     while True:
         client = connection.accept()[0]
         request = client.recv(1024)
         request = str(request)
         print(request)
+
+        match = ure.search(r'GET\s([^\s]+)', request)
+        if match:
+            path = match.group(1)
+            if '?' in path:
+                path, query = path.split('?', 1)
+                params = parse_query_params(query)
+            else:
+                params = {}
+                
         if '/set_strip_color' in request:
-            rgb_str = request.split('rgb=')[1].split(' ')[0]
-            rgb = rgb_str.split(',')
-            set_strip_color(rgb)
+            if 'rgb' in params:
+                    rgb = params['rgb'].split(',')
+                    set_strip_color(rgb)
+                    response = 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK'
+            else:
+                response = 'HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n\r\nInvalid parameters'
         elif '/turn_off_strip' in request:
             set_strip_color([0,0,0])
+            response = 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK'
         elif '/run_animation_a' in request:
             run_strip_animation('a')
-
-        html = load_html('wifi_index.html')
-        client.send(html)
+            response = 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK'
+        elif path == '/set_pump_config':
+                if 'time' in params and 'treshold' in params:
+                    pump_time = int(params['time'])
+                    pump_treshold = int(params['treshold'])
+                    set_pump_config(pump_treshold, pump_time)
+                    save_pump_config(pump_treshold, pump_time)
+                    response = 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK'
+                else:
+                    response = 'HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n\r\nInvalid parameters'
+        elif path == '/get_pump_config':
+                response = 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n' + json.dumps({"treshold": pump_treshold, "time": pump_time})
+        else:
+            response = load_html('wifi_index.html')
+            
+        client.send(response)
         client.close()
+    
         
 def hardware_loop(_):
     global pump_running
@@ -433,6 +487,12 @@ def main():
     try:
         
         switch_pump(pump_active)
+        
+        treshold, time = load_pump_config()
+        if treshold and time:
+            set_pump_config(treshold, time)
+        else:
+            set_pump_config(50, 5)
         
         display_timer = Timer(-1)
         display_timer.init(period=500, mode=Timer.PERIODIC, callback=run_display)
@@ -455,6 +515,7 @@ def main():
         
 main()
     
+
 
 
 

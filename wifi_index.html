@@ -4,17 +4,62 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LED Control</title>
+    <style>
+        label {
+            display: block;
+            margin-top: 20px;
+        }
+        input[type="range"] {
+            width: 100%;
+        }
+        .value {
+            font-size: 1.2em;
+            font-weight: bold;
+        }
+    </style>
 </head>
 <body>
-    <h1>LED Control</h1>
-    <label for="colorPicker">Choose LED color:</label>
-    <input type="color" id="colorPicker" name="colorPicker" value="#ff0000">
-    <button onclick="setLedColor()">Set LED Color</button>
-    <button onclick="runAnimationA()">Run Animation A</button>
-    <button onclick="turnOffLeds()">Turn Off LEDs</button>
-    <p id="status"></p>
+    <div>
+        <h1>LED Control</h1>
+        <label for="colorPicker">Choose LED color:</label>
+        <input type="color" id="colorPicker" name="colorPicker" value="#ff0000">
+        <button onclick="setLedColor()">Set LED Color</button>
+        <button onclick="runAnimationA()">Run Animation A</button>
+        <button onclick="turnOffLeds()">Turn Off LEDs</button>
+    </div>
+    <div>
+        <h1>Pump Control</h1>
+    
+        <label for="pumpTime">Pump Time (seconds): <span id="pumpTimeValue" class="value">{pump_time}</span></label>
+        <input type="range" id="pumpTime" name="pumpTime" min="5" max="20" value="{pump_time}" oninput="updateValue('pumpTime')">
+    
+        <label for="pumpTreshold">Pump Threshold: <span id="pumpTresholdValue" class="value">{pump_treshold}</span></label>
+        <input type="range" id="pumpTreshold" name="pumpTreshold" min="20" max="80" value="{pump_treshold}" oninput="updateValue('pumpTreshold')">
+    
+        <button onclick="setPumpConfig()">Set Pump Configuration</button>
+    </div>
 
     <script>
+
+        function updateValue(id) {
+            const valueElement = document.getElementById(id + 'Value');
+            const rangeElement = document.getElementById(id);
+            valueElement.textContent = rangeElement.value;
+        }
+
+        function setPumpConfig() {
+            const pumpTime = document.getElementById('pumpTime').value;
+            const pumpTreshold = document.getElementById('pumpTreshold').value;
+
+            fetch(`/set_pump_config?time=${pumpTime}&treshold=${pumpTreshold}`)
+                .then(response => response.text())
+                .then(data => {
+                    console.log(data);
+                    alert('Pump configuration updated!');
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
         function rgbToHex(rgb) {
             return "#" + rgb.map(x => {
                 const hex = x.toString(16);
@@ -54,6 +99,24 @@
                     console.log(data);
                 })
                 .catch(error => console.error('Error:', error));
+        }
+
+        function getBackendData() {
+            fetch('/get_pump_config')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('pumpTime').value = data.time;
+                    document.getElementById('pumpTreshold').value = data.treshold;
+                    updateValue('pumpTime');
+                    updateValue('pumpTreshold');
+                    console.log(data);
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        window.onload = function() {
+            getBackendData();
+            // setInterval(getBackendData, 60000); // Aktualizacja co 60 sekund
         }
     </script>
 </body>
