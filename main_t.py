@@ -20,6 +20,7 @@ inside_humidity = None
 humidity_treshold = 50
 
 # BUTTONS
+debounce_time = 200
 button1 = Pin(14, Pin.IN)
 button2 = Pin(15, Pin.IN)
 
@@ -30,6 +31,7 @@ status_diode_2 = Pin(13, Pin.OUT)
 
 # PUMP
 pump_active = False
+pump_running = False
 pump_flag = 0
 pump_time = 5
 pwm = PWM(Pin(26))
@@ -50,6 +52,13 @@ info_message = None
 # ACCES POINT
 ap_mode = False
 
+# LED STRIP
+numpix = 8
+strip = Neopixel(numpix, 0, 6, "RGB")
+strip_timer = Timer(-1)
+animation_running = False
+
+
 def logger(message):
     global info_message
     if (message is not None):
@@ -59,6 +68,7 @@ def logger(message):
 
 def run_pump():
     global running
+    global pump_running
     global pwm
     global pump_active
     global pump_flag
@@ -67,17 +77,17 @@ def run_pump():
     global humidity_treshold
     global info_message
     
-    
+    pump_running = True
     while running:
         if not pump_active:
             print('Pump disabled - skiping starting pump')
             logger(None)
-            return
+            break
         if inside_humidity > humidity_treshold:
             print('Humidity level OK - skiping starting pump')
             logger(None)
             pump_flag = 0
-            return
+            break
         
         pump_flag += 1
         logger(f'Humidity level low - trying to start pump: attemp #{pump_flag}')
@@ -88,7 +98,7 @@ def run_pump():
             switch_pump(False)
             pump_flag = 0
             time.sleep(3)
-            return
+            break
         
         logger(f'Starting pump for {pump_time}s')
         # start pump
@@ -110,10 +120,24 @@ def run_pump():
             read_soil_sensor()
             logger(f'Reading sensor after watering - current level: {inside_humidity}%')
             time.sleep(3)
+    pump_running = False
     
-def run_led_strip():
-    numpix = 8
-    strip = Neopixel(numpix, 0, 6, "RGB")
+def strip_animation_a(_):
+    global strip
+    
+    strip.rotate_right(1)
+    strip.show()
+
+
+def run_strip_animation(animation):
+    global strip_timer
+    global animation_running
+    
+    if animation_running:
+        strip_timer.deinit()
+    
+    animation_running = True
+    
     red = (255, 0, 0)
     orange = (255, 50, 0)
     yellow = (255, 100, 0)
@@ -130,35 +154,33 @@ def run_led_strip():
     # uncomment colors_rgbw if you have RGBW strip
     colors = colors_rgb
     # colors = colors_rgbw
-
-
-    step = round(numpix / len(colors))
-    current_pixel = 0
-    strip.brightness(50)
-
-    for color1, color2 in zip(colors, colors[1:]):
-        strip.set_pixel_line_gradient(current_pixel, current_pixel + step, color1, color2)
-        current_pixel += step
-
-    strip.set_pixel_line_gradient(current_pixel, numpix - 1, violet, red)
-
-    for x in range(100):
-        strip.rotate_right(1)
-        time.sleep(0.042)
-        strip.show()
-    strip.fill((0,0,0))
-    strip.show()
     
-def led_strip_fixed_color(rgb):
-    color = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
+    if animation == 'a':
+        
+        step = round(numpix / len(colors))
+        current_pixel = 0
+        strip.brightness(50)
+
+        for color1, color2 in zip(colors, colors[1:]):
+            strip.set_pixel_line_gradient(current_pixel, current_pixel + step, color1, color2)
+            current_pixel += step
+
+        strip.set_pixel_line_gradient(current_pixel, numpix - 1, violet, red)
+        strip_timer.init(period=50, mode=Timer.PERIODIC, callback=strip_animation_a)
+    
+def set_strip_color(rgb):
+    global strip
+    global strip_timer
+    global animation_running
+    
+    if animation_running:
+        strip_timer.deinit()
+        animation_running = False
+        
+    color = (int(rgb[1]), int(rgb[0]), int(rgb[2]))
     strip.fill(color)
     strip.show()
     print(f"LEDs set to color: {color}")
-
-def turn_off_leds():
-    strip.fill((0, 0, 0))
-    strip.show()
-    print("LEDs turned off")
     
 def read_dht():
     try:
@@ -362,20 +384,12 @@ def run_ap():
     
     serve_ap_website()
 
-def webpage():
-    #Template HTML
-    html = f"""
-            <!DOCTYPE html>
-            <html>
-            <h1> Welcome to wifi webiste</h1>
-            </html>
-            """
-    return str(html)
 
 def open_wifi_socket(ip):
     # Open a socket
     address = (ip, 80)
     connection = socket.socket()
+    connection.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     connection.bind(address)
     connection.listen(1)
     return connection
@@ -387,27 +401,32 @@ def off_led():
     print('Led OFF')
 
 def serve_wifi_website(connection):
-    wifi_index = load_html('wifi_index.html')
     while True:
         client = connection.accept()[0]
         request = client.recv(1024)
         request = str(request)
         print(request)
-        if '/run_led' in request:
-            run_led_strip()
-        elif '/off_led' in request:
-            off_led()
+        if '/set_strip_color' in request:
+            rgb_str = request.split('rgb=')[1].split(' ')[0]
+            rgb = rgb_str.split(',')
+            set_strip_color(rgb)
+        elif '/turn_off_strip' in request:
+            set_strip_color([0,0,0])
+        elif '/run_animation_a' in request:
+            run_strip_animation('a')
 
         html = load_html('wifi_index.html')
         client.send(html)
         client.close()
         
 def hardware_loop(_):
+    global pump_running
     if ap_mode == True:
         run_ap()
     read_dht()
     read_soil_sensor()
-    run_pump()
+    if not pump_running:
+        run_pump()
 def main():
     global running
     global pump_active
