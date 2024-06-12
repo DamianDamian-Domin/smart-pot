@@ -21,8 +21,8 @@ inside_humidity = None
 
 # BUTTONS
 debounce_time = 200
-button1 = Pin(14, Pin.IN)
-button2 = Pin(15, Pin.IN)
+button1 = Pin(14, Pin.IN, Pin.PULL_DOWN)
+button2 = Pin(15, Pin.IN, Pin.PULL_DOWN)
 
 # DIODES
 onboard_led = Pin('LED')
@@ -49,6 +49,7 @@ soil_sensor = {
 i2c=I2C(0,sda=Pin(0), scl=Pin(1), freq=400000)
 oled = SSD1306_I2C(128, 64, i2c)
 info_message = None
+display_page = 'main'
 
 # ACCES POINT
 ap_mode = False
@@ -58,6 +59,13 @@ numpix = 8
 strip = Neopixel(numpix, 0, 6, "RGB")
 strip_timer = Timer(-1)
 animation_running = False
+
+# WIFI
+connection_info = {
+    "status": 'Disconnected',
+    "name": '-',
+    "ip": None
+}
 
 
 def logger(message):
@@ -214,18 +222,22 @@ button2_press_time = 0
 def button2_handler(pin):
     global ap_mode
     global button2_press_time
+    global display_page
     if ap_mode:
         return
-    if pin.value() == 1:  # przycisk naciśnięty
+    if pin.value() == 1: 
         button2_press_time = time.ticks_ms()
-    else:  # przycisk zwolniony
+    else:  
         press_duration = time.ticks_diff(time.ticks_ms(), button2_press_time)
         if press_duration >= 3000:
             ap_mode = True
             button2_press_time = 0
             print("Access Point mode activated")
         else:
-            print("Button 2 pressed briefly")
+            if display_page == 'main':
+                display_page = 'info'
+            elif display_page == 'info':
+                display_page = 'main'
     
     
 button1.irq(trigger=Pin.IRQ_FALLING, handler=button1_handler)
@@ -235,6 +247,10 @@ def run_display(_):
     global running
     global inside_humidity
     global info_message
+    global display_page
+    global pump_treshold
+    global pump_time
+    global connection_info
     thermometer_ba = bytearray(b'\x00\x00\x00\x00\x00\x00\x00<\x00\x00f\x00\x00B\xe0\x00B\x00\x00B\x00\x00B\xe0\x00B\x00\x00B\x00\x00B\xe0\x00B\x00\x00B\x00\x00B\xe0\x00B\x00\x00\xc3\x00\x00\x81\x00\x00\x81\x00\x00\x81\x00\x00\x81\x00\x00\xc3\x00\x00~\x00\x00\x00\x00\x00\x00\x00'
     )
     thermometer_fb = framebuf.FrameBuffer(thermometer_ba,24,24, framebuf.MONO_HLSB)
@@ -255,7 +271,7 @@ def run_display(_):
                 height += 10
                 row = word + ' '
                 oled.text(row, 0, height)
-    else:
+    elif display_page == 'main':
         oled.text('OUTSIDE', 0, 3)
         oled.blit(thermometer_fb,0,12)
         oled.blit(tear_fb, 0, 40)
@@ -275,6 +291,12 @@ def run_display(_):
         # FILL DATA
         _fill_value = int(0 + (inside_humidity / 100) * (60 - 0)) if inside_humidity is not None else 0
         oled.fill_rect(64, 13, _fill_value, 20, 1)
+    elif display_page == 'info':
+        oled.text(f'Treshold: {pump_treshold}%', 0, 3)
+        oled.text(f'Pump time: {pump_time}s', 0, 13)
+        oled.text(f'WiFi: {connection_info["name"]}', 0, 23)
+        oled.text(f'State: {connection_info["status"]}', 0, 33)
+        oled.text(f'{connection_info["ip"]}', 0, 43)
     
     oled.show()
     
@@ -291,43 +313,6 @@ def switch_pump(value):
 def load_html(filename):
     with open(filename, 'r') as file:
         return file.read()
-
-
-def connect_to_wifi(ssid, password):
-    global onboard_led
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-        
-    wlan.connect(ssid, password)
-    timeout = 5
-    while not wlan.isconnected() and timeout > 0:
-        print(wlan.status())
-        onboard_led.toggle()
-        logger(f'Connecting to {ssid} WiFi...')
-        time.sleep(1)
-        timeout -= 1
-    if wlan.isconnected():
-        onboard_led.on()
-        ip = wlan.ifconfig()[0]
-        logger(f'Connected to {ssid} WiFi with IP: {ip}')
-        time.sleep(3)
-        logger(None)
-        return ip
-    else:
-        onboard_led.off()
-        message = None
-        if wlan.status() == -3:
-            message = 'Wrong password'
-        elif wlan.status() == -2:
-            message = 'No access point found'
-        elif wlan.status() == -1:
-            message = 'Failed to connect'
-        else:
-            message = 'Error: Unknown'
-        logger(f'Failed to connect to WiFi: {message}')
-        time.sleep(3)
-        logger(None)
-        return None
 
 
 def save_wifi_config(ssid, password):
@@ -481,6 +466,54 @@ def hardware_loop(_):
     read_soil_sensor()
     if not pump_running:
         run_pump()
+        
+def connect_to_wifi(ssid, password):
+    global onboard_led
+    global connection_info
+    wlan = network.WLAN(network.STA_IF)
+    wlan.active(True)
+        
+    wlan.connect(ssid, password)
+    timeout = 5
+
+    while not wlan.isconnected() and timeout > 0:
+        print(wlan.status())
+        onboard_led.toggle()
+        logger(f'Connecting to {ssid} WiFi...')
+        time.sleep(1)
+        timeout -= 1
+    if wlan.isconnected():
+        onboard_led.on()
+        ip = wlan.ifconfig()[0]
+        connection_info = {
+                "status": 'Connected',
+                "name": ssid,
+                "ip": ip
+            }
+        logger(f'Connected to {ssid} WiFi with IP: {ip}')
+        time.sleep(3)
+        logger(None)
+        connection = open_wifi_socket(ip)
+        serve_wifi_website(connection)
+    else:
+        onboard_led.off()
+        message = None
+        if wlan.status() == -3:
+            message = 'Wrong password'
+        elif wlan.status() == -2:
+            message = 'No access point found'
+        elif wlan.status() == -1:
+            message = 'Failed to connect'
+        else:
+            message = 'Error: Unknown'
+        logger(f'Failed to connect to WiFi: {message}')
+        connection_info = {
+                "status": 'Disconnected',
+                "name": ssid,
+                "ip": None
+            }
+        time.sleep(3)
+        logger(None)
 def main():
     global running
     global pump_active
@@ -502,10 +535,7 @@ def main():
     
         ssid, password = load_wifi_config()
         if ssid and password:
-            ip = connect_to_wifi(ssid, password)
-            if ip:
-                connection = open_wifi_socket(ip)
-                serve_wifi_website(connection)
+            connect_to_wifi(ssid, password)
 
     except KeyboardInterrupt:
         print('Finished loop')
