@@ -149,6 +149,17 @@ def run_led_strip():
     strip.fill((0,0,0))
     strip.show()
     
+def led_strip_fixed_color(rgb):
+    color = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
+    strip.fill(color)
+    strip.show()
+    print(f"LEDs set to color: {color}")
+
+def turn_off_leds():
+    strip.fill((0, 0, 0))
+    strip.show()
+    print("LEDs turned off")
+    
 def read_dht():
     try:
         global outside_humidity
@@ -176,16 +187,26 @@ def button1_handler(pin):
     switch_pump(pump_active)
     print("Button 1 pressed")
 
+button2_press_time = 0
 def button2_handler(pin):
     global ap_mode
+    global button2_press_time
     if ap_mode:
         return
-    ap_mode = not ap_mode
-    print(ap_mode)
-    print("Button 2 pressed")
+    if pin.value() == 1:  # przycisk naciśnięty
+        button2_press_time = time.ticks_ms()
+    else:  # przycisk zwolniony
+        press_duration = time.ticks_diff(time.ticks_ms(), button2_press_time)
+        if press_duration >= 3000:
+            ap_mode = True
+            button2_press_time = 0
+            print("Access Point mode activated")
+        else:
+            print("Button 2 pressed briefly")
+    
     
 button1.irq(trigger=Pin.IRQ_FALLING, handler=button1_handler)
-button2.irq(trigger=Pin.IRQ_FALLING, handler=button2_handler)
+button2.irq(trigger=Pin.IRQ_FALLING | Pin.IRQ_RISING, handler=button2_handler)
         
 def run_display(_):
     global running
@@ -359,13 +380,25 @@ def open_wifi_socket(ip):
     connection.listen(1)
     return connection
 
+def run_led():
+    print('Led ON')
+    
+def off_led():
+    print('Led OFF')
+
 def serve_wifi_website(connection):
+    wifi_index = load_html('wifi_index.html')
     while True:
         client = connection.accept()[0]
         request = client.recv(1024)
         request = str(request)
         print(request)
-        html = webpage()
+        if '/run_led' in request:
+            run_led_strip()
+        elif '/off_led' in request:
+            off_led()
+
+        html = load_html('wifi_index.html')
         client.send(html)
         client.close()
         
@@ -386,7 +419,7 @@ def main():
         display_timer.init(period=500, mode=Timer.PERIODIC, callback=run_display)
         
         hardware_timer = Timer(-1)
-        hardware_timer.init(period=1000, mode=Timer.PERIODIC, callback=hardware_loop) 
+        hardware_timer.init(period=5000, mode=Timer.PERIODIC, callback=hardware_loop) 
     
         ssid, password = load_wifi_config()
         if ssid and password:
