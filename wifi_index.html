@@ -38,6 +38,18 @@
     
         <button onclick="setPumpConfig()">Set Pump Configuration</button>
     </div>
+    <div>
+        <h1>Plant info</h1>
+
+        <label for="plantDate">Plant Date:</label>
+        <input type="date" id="plantDate" name="plantDate">
+
+        <label for="plantName">Plant Name (max 7 characters):</label>
+        <input type="text" id="plantName" name="plantName" maxlength="7">
+        <div style="margin-top: 0.5rem">
+            <button onclick="setDataInfo()">Set Plant Data</button>
+        </div>
+    </div>
 
     <script>
 
@@ -56,6 +68,22 @@
                 .then(data => {
                     console.log(data);
                     alert('Pump configuration updated!');
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function setDataInfo() {
+            const plantDate = document.getElementById('plantDate').value;
+            const plantName = document.getElementById('plantName').value;
+
+            const dateParts = plantDate.split('-');
+            const formattedDate = `${dateParts[2]}.${dateParts[1]}.${dateParts[0].slice(2)}`;
+
+            fetch(`/set_plant_data?date=${formattedDate}&name=${plantName}`)
+                .then(response => response.text())
+                .then(data => {
+                    console.log(data);
+                    alert('Plant data updated!');
                 })
                 .catch(error => console.error('Error:', error));
         }

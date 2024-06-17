@@ -10,6 +10,7 @@ import network
 import socket
 import ure
 import json
+import _thread
 
 # LOOP CONTROLER
 running = True
@@ -66,6 +67,10 @@ connection_info = {
     "name": '-',
     "ip": None
 }
+
+# PLANT DATA
+plant_date = None
+plant_name = None
 
 
 def logger(message):
@@ -251,6 +256,8 @@ def run_display(_):
     global pump_treshold
     global pump_time
     global connection_info
+    global plant_date
+    global plant_name
     thermometer_ba = bytearray(b'\x00\x00\x00\x00\x00\x00\x00<\x00\x00f\x00\x00B\xe0\x00B\x00\x00B\x00\x00B\xe0\x00B\x00\x00B\x00\x00B\xe0\x00B\x00\x00B\x00\x00B\xe0\x00B\x00\x00\xc3\x00\x00\x81\x00\x00\x81\x00\x00\x81\x00\x00\x81\x00\x00\xc3\x00\x00~\x00\x00\x00\x00\x00\x00\x00'
     )
     thermometer_fb = framebuf.FrameBuffer(thermometer_ba,24,24, framebuf.MONO_HLSB)
@@ -283,8 +290,8 @@ def run_display(_):
         oled.rect(64, 13, 60, 20, 1)
 
         oled.text('DATA', 65, 36)
-        oled.text('31.05.24', 65, 46)
-        oled.text('Piwonia', 65, 56)
+        oled.text(f'{plant_date}', 65, 46)
+        oled.text(f'{plant_name}', 65, 56)
         oled.text(f'{outside_humidity}C', 28, 18)
         oled.text(f'{outside_temperature}%', 28, 46)
         
@@ -348,6 +355,27 @@ def set_pump_config(treshold, time):
     
     pump_treshold = treshold
     pump_time = time
+
+def save_plant_data(date, name):
+    with open('plant_data.txt', 'w', encoding='utf-8') as f:
+        f.write(f'{date}\n{name}')
+
+# Funkcja do odczytu danych o roślinie z pliku
+def load_plant_data():
+    try:
+        with open('plant_data.txt', 'r') as f:
+            date = f.readline().strip()
+            name = f.readline().strip()
+            return date, name
+    except OSError:
+        return None, None
+
+# Funkcja do ustawiania danych o roślinie
+def set_plant_data(date, name):
+    global plant_date
+    global plant_name
+    plant_date = date
+    plant_name = name
 
 def parse_query_params(query):
     params = {}
@@ -440,6 +468,15 @@ def serve_wifi_website(connection):
         elif '/run_animation_a' in request:
             run_strip_animation('a')
             response = 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK'
+        elif path == '/set_plant_data':
+                if 'date' in params and 'name' in params:
+                    plant_date = params['date']
+                    plant_name = params['name']
+                    set_plant_data(plant_date, plant_name)
+                    save_plant_data(plant_date, plant_name)
+                    response = 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nPlant data updated'
+                else:
+                    response = 'HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n\r\nInvalid parameters'
         elif path == '/set_pump_config':
                 if 'time' in params and 'treshold' in params:
                     pump_time = int(params['time'])
@@ -526,6 +563,12 @@ def main():
             set_pump_config(treshold, time)
         else:
             set_pump_config(50, 5)
+
+        date, name = load_plant_data()
+        if date and name:
+            set_plant_data(date, name)
+        if date and name:
+            set_plant_data(None, None)
         
         display_timer = Timer(-1)
         display_timer.init(period=500, mode=Timer.PERIODIC, callback=run_display)
@@ -545,6 +588,7 @@ def main():
         
 main()
     
+
 
 
 
