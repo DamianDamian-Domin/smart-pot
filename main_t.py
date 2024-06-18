@@ -16,8 +16,8 @@ import _thread
 running = True
 
 # VARIABLE DEFINITIONS
-outside_humidity = None
-outside_temperature = None
+outside_humidity = '-'
+outside_temperature = '-'
 inside_humidity = None
 
 # BUTTONS
@@ -78,6 +78,65 @@ def logger(message):
     if (message is not None):
         print(message)
     info_message = message
+
+def run_display(_):
+    global running
+    global inside_humidity
+    global info_message
+    global display_page
+    global pump_treshold
+    global pump_time
+    global connection_info
+    global plant_date
+    global plant_name
+    thermometer_ba = bytearray(b'\x00\x00\x00\x00\x00\x00\x00<\x00\x00f\x00\x00B\xe0\x00B\x00\x00B\x00\x00B\xe0\x00B\x00\x00B\x00\x00B\xe0\x00B\x00\x00B\x00\x00B\xe0\x00B\x00\x00\xc3\x00\x00\x81\x00\x00\x81\x00\x00\x81\x00\x00\x81\x00\x00\xc3\x00\x00~\x00\x00\x00\x00\x00\x00\x00'
+    )
+    thermometer_fb = framebuf.FrameBuffer(thermometer_ba,24,24, framebuf.MONO_HLSB)
+    
+    tear_ba = bytearray(b'\x00\x10\x00\x00\x18\x00\x00\x18\x00\x00<\x00\x00,\x00\x00$\x00\x00f\x00\x00\xc3\x00\x00\x81\x00\x01\x81\x80\x03\x00\xc0\x06\x00`\x04\x00`\x04\x00 \x0c\x000\x04\x00 \x0c\x000\x08\x00 \x04\x00 \x06\x00`\x06\x00@\x03\x01\xc0\x01\xef\x00\x00|\x00')
+    tear_fb = framebuf.FrameBuffer(tear_ba, 24,24, framebuf.MONO_HLSB)
+
+    oled.fill(0)
+    
+    if info_message is not None:
+        height = 0
+        row = ''
+        for word in info_message.split(' '):
+            if len(row) + len(word) < 16:
+                row += word + ' '
+                oled.text(row, 0, height)
+            else:
+                height += 10
+                row = word + ' '
+                oled.text(row, 0, height)
+    elif display_page == 'main':
+        oled.text('OUTSIDE', 0, 3)
+        oled.blit(thermometer_fb,0,12)
+        oled.blit(tear_fb, 0, 40)
+        
+        oled.vline(58, 0, 64, 1)
+        
+        oled.text('SENSOR', 65, 3)
+        
+        oled.rect(64, 13, 60, 20, 1)
+
+        oled.text('DATA', 65, 36)
+        oled.text(f'{plant_date}', 65, 46)
+        oled.text(f'{plant_name}', 65, 56)
+        oled.text(f'{outside_humidity}C', 28, 18)
+        oled.text(f'{outside_temperature}%', 28, 46)
+        
+        # FILL DATA
+        _fill_value = int(0 + (inside_humidity / 100) * (60 - 0)) if inside_humidity is not None else 0
+        oled.fill_rect(64, 13, _fill_value, 20, 1)
+    elif display_page == 'info':
+        oled.text(f'Treshold: {pump_treshold}%', 0, 3)
+        oled.text(f'Pump time: {pump_time}s', 0, 13)
+        oled.text(f'WiFi: {connection_info["name"]}', 0, 23)
+        oled.text(f'State: {connection_info["status"]}', 0, 33)
+        oled.text(f'{connection_info["ip"]}', 0, 43)
+    
+    oled.show()
     
 
 def run_pump():
@@ -90,6 +149,7 @@ def run_pump():
     global inside_humidity
     global pump_treshold
     global info_message
+    
     
     pump_running = True
     while running:
@@ -105,6 +165,7 @@ def run_pump():
         
         pump_flag += 1
         logger(f'Humidity level low - trying to start pump: attemp #{pump_flag}')
+        run_display(None)
         time.sleep(3)
         
         if pump_flag > 2:
@@ -115,6 +176,7 @@ def run_pump():
             break
         
         logger(f'Starting pump for {pump_time}s')
+        run_display(None)
         # start pump
         pwm.freq(200)
         pwm.duty_u16(45000)
@@ -126,6 +188,7 @@ def run_pump():
         pwm.duty_u16(0)
         
         logger(f'Waiting for imersia 5s')
+        run_display(None)
         # wait for imersia
         time.sleep(5)
         
@@ -133,6 +196,7 @@ def run_pump():
         for _ in range(3):
             read_soil_sensor()
             logger(f'Reading sensor after watering - current level: {inside_humidity}%')
+            run_display(None)
             time.sleep(3)
     pump_running = False
     
@@ -248,64 +312,7 @@ def button2_handler(pin):
 button1.irq(trigger=Pin.IRQ_FALLING, handler=button1_handler)
 button2.irq(trigger=Pin.IRQ_FALLING | Pin.IRQ_RISING, handler=button2_handler)
         
-def run_display(_):
-    global running
-    global inside_humidity
-    global info_message
-    global display_page
-    global pump_treshold
-    global pump_time
-    global connection_info
-    global plant_date
-    global plant_name
-    thermometer_ba = bytearray(b'\x00\x00\x00\x00\x00\x00\x00<\x00\x00f\x00\x00B\xe0\x00B\x00\x00B\x00\x00B\xe0\x00B\x00\x00B\x00\x00B\xe0\x00B\x00\x00B\x00\x00B\xe0\x00B\x00\x00\xc3\x00\x00\x81\x00\x00\x81\x00\x00\x81\x00\x00\x81\x00\x00\xc3\x00\x00~\x00\x00\x00\x00\x00\x00\x00'
-    )
-    thermometer_fb = framebuf.FrameBuffer(thermometer_ba,24,24, framebuf.MONO_HLSB)
-    
-    tear_ba = bytearray(b'\x00\x10\x00\x00\x18\x00\x00\x18\x00\x00<\x00\x00,\x00\x00$\x00\x00f\x00\x00\xc3\x00\x00\x81\x00\x01\x81\x80\x03\x00\xc0\x06\x00`\x04\x00`\x04\x00 \x0c\x000\x04\x00 \x0c\x000\x08\x00 \x04\x00 \x06\x00`\x06\x00@\x03\x01\xc0\x01\xef\x00\x00|\x00')
-    tear_fb = framebuf.FrameBuffer(tear_ba, 24,24, framebuf.MONO_HLSB)
 
-    oled.fill(0)
-    
-    if info_message is not None:
-        height = 0
-        row = ''
-        for word in info_message.split(' '):
-            if len(row) + len(word) < 16:
-                row += word + ' '
-                oled.text(row, 0, height)
-            else:
-                height += 10
-                row = word + ' '
-                oled.text(row, 0, height)
-    elif display_page == 'main':
-        oled.text('OUTSIDE', 0, 3)
-        oled.blit(thermometer_fb,0,12)
-        oled.blit(tear_fb, 0, 40)
-        
-        oled.vline(58, 0, 64, 1)
-        
-        oled.text('SENSOR', 65, 3)
-        
-        oled.rect(64, 13, 60, 20, 1)
-
-        oled.text('DATA', 65, 36)
-        oled.text(f'{plant_date}', 65, 46)
-        oled.text(f'{plant_name}', 65, 56)
-        oled.text(f'{outside_humidity}C', 28, 18)
-        oled.text(f'{outside_temperature}%', 28, 46)
-        
-        # FILL DATA
-        _fill_value = int(0 + (inside_humidity / 100) * (60 - 0)) if inside_humidity is not None else 0
-        oled.fill_rect(64, 13, _fill_value, 20, 1)
-    elif display_page == 'info':
-        oled.text(f'Treshold: {pump_treshold}%', 0, 3)
-        oled.text(f'Pump time: {pump_time}s', 0, 13)
-        oled.text(f'WiFi: {connection_info["name"]}', 0, 23)
-        oled.text(f'State: {connection_info["status"]}', 0, 33)
-        oled.text(f'{connection_info["ip"]}', 0, 43)
-    
-    oled.show()
     
     
 def switch_pump(value):
@@ -497,6 +504,7 @@ def serve_wifi_website(connection):
         
 def hardware_loop(_):
     global pump_running
+    global logger
     if ap_mode == True:
         run_ap()
     read_dht()
@@ -567,7 +575,7 @@ def main():
         date, name = load_plant_data()
         if date and name:
             set_plant_data(date, name)
-        if date and name:
+        else:
             set_plant_data(None, None)
         
         display_timer = Timer(-1)
@@ -588,6 +596,7 @@ def main():
         
 main()
     
+
 
 
 
