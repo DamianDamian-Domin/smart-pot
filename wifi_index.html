@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LED Control</title>
     <style>
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            padding: 0 0.1rem;
+        }
         label {
             display: block;
             margin-top: 20px;
@@ -16,42 +22,80 @@
             font-size: 1.2em;
             font-weight: bold;
         }
+        .status-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .active {
+            background-color: rgb(121, 255, 121) !important;
+        }
+        .inactive {
+            background-color: rgb(247, 60, 60) !important;
+        }
+        .connected-bar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 20px;
+            border: 1px solid rgb(126, 126, 126);
+            border-radius: 8px;
+            background-color: rgb(243, 243, 243);
+        }
     </style>
 </head>
 <body>
-    <div>
-        <h1>LED Control</h1>
-        <label for="colorPicker">Choose LED color:</label>
-        <input type="color" id="colorPicker" name="colorPicker" value="#ff0000">
-        <button onclick="setLedColor()">Set LED Color</button>
-        <button onclick="runAnimationA()">Run Animation A</button>
-        <button onclick="turnOffLeds()">Turn Off LEDs</button>
-    </div>
-    <div>
-        <h1>Pump Control</h1>
+    <div class="container">
+        <div id="status-bar" class="connected-bar"> Connecting... </div>
+        <div>
+            <h1>LED Control</h1>
+            <label for="colorPicker">Choose LED color:</label>
+            <input type="color" id="colorPicker" name="colorPicker" value="#ff0000">
+            <button onclick="setLedColor()">Set LED Color</button>
+            <button onclick="runAnimationA()">Run Animation A</button>
+            <button onclick="turnOffLeds()">Turn Off LEDs</button>
+        </div>
+        <div>
+            <h1>Pump Control</h1>
+        
+            <div> 
+                <span>Pump Status: </span>
+                <span id="pumpStatus" class="status-indicator"></span>
+                <button onclick="switchPump()" id="switch-button" onclick="switchPump()"> Switch on </button>
+            </div>
     
-        <label for="pumpTime">Pump Time (seconds): <span id="pumpTimeValue" class="value">{pump_time}</span></label>
-        <input type="range" id="pumpTime" name="pumpTime" min="5" max="20" value="{pump_time}" oninput="updateValue('pumpTime')">
+            <label for="pumpTime">Pump Time (seconds): <span id="pumpTimeValue" class="value">{pump_time}</span></label>
+            <input type="range" id="pumpTime" name="pumpTime" min="5" max="20" value="{pump_time}" oninput="updateValue('pumpTime')">
+        
+            <label for="pumpTreshold">Pump Threshold: <span id="pumpTresholdValue" class="value">{pump_treshold}</span></label>
+            <input type="range" id="pumpTreshold" name="pumpTreshold" min="20" max="80" value="{pump_treshold}" oninput="updateValue('pumpTreshold')">
+        
+            <button onclick="setPumpConfig()">Set Pump Configuration</button>
+        </div>
+        <div>
+            <h1>Plant info</h1>
     
-        <label for="pumpTreshold">Pump Threshold: <span id="pumpTresholdValue" class="value">{pump_treshold}</span></label>
-        <input type="range" id="pumpTreshold" name="pumpTreshold" min="20" max="80" value="{pump_treshold}" oninput="updateValue('pumpTreshold')">
+            <label for="plantDate">Plant Date:</label>
+            <input type="date" id="plantDate" name="plantDate">
     
-        <button onclick="setPumpConfig()">Set Pump Configuration</button>
-    </div>
-    <div>
-        <h1>Plant info</h1>
-
-        <label for="plantDate">Plant Date:</label>
-        <input type="date" id="plantDate" name="plantDate">
-
-        <label for="plantName">Plant Name (max 7 characters):</label>
-        <input type="text" id="plantName" name="plantName" maxlength="7">
-        <div style="margin-top: 0.5rem">
-            <button onclick="setDataInfo()">Set Plant Data</button>
+            <label for="plantName">Plant Name (max 7 characters):</label>
+            <input type="text" id="plantName" name="plantName" maxlength="7">
+            <div style="margin-top: 0.5rem">
+                <button onclick="setDataInfo()">Set Plant Data</button>
+            </div>
+        </div>
+    
+        <div>
+            <h1>Sensor Data</h1>
+            <p id="humidity">Humidity: --%</p>
+            <p id="temperature">Temperature: --°C</p>
+            <p id="soil">Soil Humidity: --%</p>
         </div>
     </div>
 
-    <script>
+    <script defer>
 
         function updateValue(id) {
             const valueElement = document.getElementById(id + 'Value');
@@ -70,6 +114,31 @@
                     alert('Pump configuration updated!');
                 })
                 .catch(error => console.error('Error:', error));
+        }
+
+        function switchPump() {
+
+            fetch(`/switch_pump`)
+                .then(response => response.text())
+                .then(data => {
+                    console.log(data);
+                    alert('Pump switched');
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function updatePumpStatus(isActive) {
+            const statusElement = document.getElementById('pumpStatus');
+            const switchButton = document.getElementById('switch-button')
+            if (isActive) {
+                statusElement.classList.remove('inactive');
+                statusElement.classList.add('active');
+                switchButton.innerText = 'Switch off'
+            } else {
+                statusElement.classList.remove('active');
+                statusElement.classList.add('inactive');
+                switchButton.innerText = 'Switch on'
+            }
         }
 
         function setDataInfo() {
@@ -129,23 +198,71 @@
                 .catch(error => console.error('Error:', error));
         }
 
-        function getBackendData() {
-            fetch('/get_pump_config')
+        function updateStatusBar(connected) {
+            const statusBar = document.getElementById('status-bar');
+            if (connected) {
+                statusBar.classList.remove('inactive');
+                statusBar.classList.add('active');
+                statusBar.innerText = 'Connected'
+            } else {
+                statusBar.classList.remove('active');
+                statusBar.classList.add('inactive');
+                statusBar.innerText = 'Disconnected, trying to reconnect...'
+            }
+        }
+
+        function getPollingData() {
+            
+            fetch('/get_backend_data')
                 .then(response => response.json())
                 .then(data => {
+                    document.getElementById('humidity').innerText = `Humidity: ${data.humidity}%`;
+                    document.getElementById('temperature').innerText = `Temperature: ${data.temperature}°C`;
+                    document.getElementById('soil').innerText = `Soil Humidity: ${data.soil}%`;
+                    updatePumpStatus(data.pump_active);
+                    updateStatusBar(true)
+                    console.log(data);
+                })
+                .catch(error => {
+                    updateStatusBar(false)
+                    console.error('Error:', error)
+                });
+        }
+
+        function getSingleData() {
+            fetch('/get_backend_data')
+                .then(response => response.json())
+                .then(data => {
+                    updateStatusBar(true)
+                    document.getElementById('humidity').innerText = `Humidity: ${data.humidity}%`;
+                    document.getElementById('temperature').innerText = `Temperature: ${data.temperature}°C`;
+                    document.getElementById('soil').innerText = `Soil Humidity: ${data.soil}%`;
                     document.getElementById('pumpTime').value = data.time;
                     document.getElementById('pumpTreshold').value = data.treshold;
+                    if (data.date) {
+                        const dateParts = data.date.split('.');
+                        const formattedDate = `20${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+                        document.getElementById('plantDate').value = formattedDate;
+                    }
+                    document.getElementById('plantName').value = data.name;
+                    updatePumpStatus(data.pump_active);
                     updateValue('pumpTime');
                     updateValue('pumpTreshold');
                     console.log(data);
                 })
-                .catch(error => console.error('Error:', error));
+                .catch(error => {
+                    updateStatusBar(false)
+                    console.error('Error:', error)
+                });
         }
 
-        window.onload = function() {
-            getBackendData();
-            // setInterval(getBackendData, 60000); // Aktualizacja co 60 sekund
-        }
+        document.addEventListener('DOMContentLoaded', (event) => {
+            console.log('DOM fully loaded and parsed');
+            getSingleData();
+            setInterval(getPollingData, 5000); // Aktualizacja co 5 sekund
+        });
     </script>
 </body>
 </html>
+
+

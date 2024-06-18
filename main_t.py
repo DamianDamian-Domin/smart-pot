@@ -123,8 +123,8 @@ def run_display(_):
         oled.text('DATA', 65, 36)
         oled.text(f'{plant_date}', 65, 46)
         oled.text(f'{plant_name}', 65, 56)
-        oled.text(f'{outside_humidity}C', 28, 18)
-        oled.text(f'{outside_temperature}%', 28, 46)
+        oled.text(f'{outside_temperature}C', 28, 18)
+        oled.text(f'{outside_humidity}%', 28, 46)
         
         # FILL DATA
         _fill_value = int(0 + (inside_humidity / 100) * (60 - 0)) if inside_humidity is not None else 0
@@ -265,8 +265,8 @@ def read_dht():
         global outside_humidity
         global outside_temperature
         dht11.measure()
-        outside_humidity = dht11.temperature()
-        outside_temperature = dht11.humidity()
+        outside_humidity = dht11.humidity()
+        outside_temperature = dht11.temperature()
         print(f'Room Temperature: {outside_humidity}C')
         print(f'Room Humidity: {outside_temperature}%')
     except:
@@ -325,7 +325,7 @@ def switch_pump(value):
     
 
 def load_html(filename):
-    with open(filename, 'r') as file:
+    with open(filename, 'rb') as file:
         return file.read()
 
 
@@ -447,6 +447,12 @@ def open_wifi_socket(ip):
 def serve_wifi_website(connection):
     global pump_time
     global pump_treshold
+    global outside_humidity
+    global outside_temperature
+    global inside_humidity
+    global plant_date
+    global plant_name
+    global pump_active
     while True:
         client = connection.accept()[0]
         request = client.recv(1024)
@@ -475,6 +481,9 @@ def serve_wifi_website(connection):
         elif '/run_animation_a' in request:
             run_strip_animation('a')
             response = 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK'
+        elif '/switch_pump' in request:
+            switch_pump(not pump_active)
+            response = 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK'
         elif path == '/set_plant_data':
                 if 'date' in params and 'name' in params:
                     plant_date = params['date']
@@ -493,10 +502,14 @@ def serve_wifi_website(connection):
                     response = 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK'
                 else:
                     response = 'HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n\r\nInvalid parameters'
-        elif path == '/get_pump_config':
-                response = 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n' + json.dumps({"treshold": pump_treshold, "time": pump_time})
+        elif path == '/get_backend_data':
+                response = 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n' + json.dumps({"treshold": pump_treshold, "time": pump_time, "humidity": outside_humidity, "temperature": outside_temperature, 'soil': inside_humidity, 'name': plant_name, 'date': plant_date, 'pump_active': pump_active})
         else:
-            response = load_html('wifi_index.html')
+            html_content = load_html('wifi_index.html')
+            response = b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n' + html_content
+            client.sendall(response)
+            client.close()
+            continue
             
         client.send(response)
         client.close()
